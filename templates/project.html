@@ -1,0 +1,660 @@
+{{define "title"}}{{.Project.Name}} — MidwestCam{{end}}
+{{define "header_right"}}<span class="text-sm font-semibold text-white truncate max-w-[180px] sm:max-w-none">{{.Project.Name}}</span>{{end}}
+
+{{define "content"}}
+<!-- Upload Section -->
+<div class="bg-white rounded-xl mx-4 mt-4 p-5 shadow-sm">
+    <h2 class="text-lg font-bold text-mw-dark mb-4">📸 Upload Photos</h2>
+
+    <!-- Worker Picker -->
+    <div class="mb-4">
+        <label for="worker-select" class="block text-sm font-semibold text-mw-dark mb-1.5">
+            Who are you? <span class="font-normal text-gray-400 text-xs">(optional)</span>
+        </label>
+        <select id="worker-select" onchange="workerChanged()"
+                class="w-full px-3 py-3 border-2 border-gray-200 rounded-lg text-base bg-white focus:border-mw-cyan focus:outline-none appearance-auto">
+            <option value="">— Select your name —</option>
+            {{range .Workers}}
+            <option value="{{.ID}}">{{.Name}}</option>
+            {{end}}
+            <option value="other">Someone else...</option>
+        </select>
+        <input type="text" id="other-name" placeholder="Type your name"
+               class="hidden mt-2 w-full px-3 py-3 border-2 border-gray-200 rounded-lg text-base focus:border-mw-cyan focus:outline-none">
+    </div>
+
+    <!-- Tags -->
+    <div class="flex gap-2 mb-4 flex-wrap">
+        <button class="tag-btn px-4 py-2 border-2 border-gray-200 rounded-full text-sm font-semibold cursor-pointer transition-all text-mw-cyan hover:border-mw-cyan" data-tag="progress" onclick="toggleTag(this)">🔨 Progress</button>
+        <button class="tag-btn px-4 py-2 border-2 border-gray-200 rounded-full text-sm font-semibold cursor-pointer transition-all text-cyan-600 hover:border-cyan-600" data-tag="before" onclick="toggleTag(this)">📋 Before</button>
+        <button class="tag-btn px-4 py-2 border-2 border-gray-200 rounded-full text-sm font-semibold cursor-pointer transition-all text-green-600 hover:border-green-600" data-tag="after" onclick="toggleTag(this)">✅ After</button>
+        <button class="tag-btn px-4 py-2 border-2 border-gray-200 rounded-full text-sm font-semibold cursor-pointer transition-all text-red-600 hover:border-red-600" data-tag="issue" onclick="toggleTag(this)">⚠️ Issue</button>
+    </div>
+
+    <!-- Caption -->
+    <textarea id="caption" rows="2" placeholder="Add a caption (optional)"
+              class="w-full px-3 py-3 border-2 border-gray-200 rounded-lg text-base mb-4 resize-none focus:border-mw-cyan focus:outline-none"></textarea>
+
+    <!-- Rapid Shoot Button (primary when getUserMedia available) -->
+    <button id="rapid-shoot-btn" onclick="openCamera()" style="display:none"
+            class="block w-full py-4 bg-mw-cyan text-white text-center text-lg font-bold rounded-xl cursor-pointer active:bg-mw-dark transition-colors mb-3">
+        📷 Rapid Shoot
+    </button>
+
+    <!-- Camera Button (fallback / secondary) -->
+    <label for="camera-input" id="camera-label"
+           class="block w-full py-4 bg-mw-cyan text-white text-center text-lg font-bold rounded-xl cursor-pointer active:bg-mw-dark transition-colors mb-3">
+        📷 Take Photo
+    </label>
+    <input type="file" id="camera-input" accept="image/*" capture="environment" class="hidden">
+
+    <!-- File Picker / Drop Zone -->
+    <label for="file-input" id="drop-area"
+           class="block border-3 border-dashed border-gray-300 rounded-xl py-8 px-4 text-center cursor-pointer transition-all hover:border-mw-cyan active:border-mw-cyan active:bg-mw-cyan/5 mb-4"
+           style="border-width: 3px;">
+        <div class="text-5xl mb-2">📁</div>
+        <p class="text-base text-gray-500 font-semibold">Choose from gallery or drop files</p>
+        <div class="text-xs text-gray-400 mt-1">JPG, PNG, HEIC • Max 50MB each</div>
+    </label>
+    <input type="file" id="file-input" accept="image/*" multiple class="hidden">
+
+    <!-- Upload Status -->
+    <div id="upload-status" class="hidden px-4 py-2.5 rounded-lg text-sm text-center"></div>
+
+    <!-- Upload Queue -->
+    <div class="mt-4 space-y-2" id="upload-queue"></div>
+</div>
+
+<!-- Photo Gallery -->
+<div class="px-4 pb-6">
+    <h2 class="text-lg font-bold text-mw-dark pt-4 mb-3">📸 Photos ({{.PhotoCount}})</h2>
+
+    {{if .DayGroups}}
+    {{range $dg := .DayGroups}}
+    <div class="mb-6">
+        <div class="flex items-center justify-between py-3 border-b-2 border-mw-cyan mb-3">
+            <span class="text-base font-bold text-mw-dark">{{$dg.Label}}</span>
+            <span class="text-sm text-gray-500 font-semibold">{{len $dg.Photos}} photos</span>
+        </div>
+        <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+            {{range $dg.Photos}}
+            <div class="photo-tile relative rounded-lg overflow-hidden bg-gray-200 aspect-square cursor-pointer"
+                 onclick="openLightbox(this)">
+                <img src="/media/thumb/{{$.Project.Slug}}/{{.Filename}}"
+                     alt="{{deref .Caption}}" loading="lazy"
+                     class="w-full h-full object-cover">
+                {{if .Tag}}
+                <span class="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold text-white uppercase
+                    {{if eq (deref .Tag) "before"}}bg-cyan-500{{end}}
+                    {{if eq (deref .Tag) "after"}}bg-green-500{{end}}
+                    {{if eq (deref .Tag) "issue"}}bg-red-500{{end}}
+                    {{if eq (deref .Tag) "progress"}}bg-mw-cyan{{end}}
+                ">{{deref .Tag}}</span>
+                {{end}}
+                {{if ne .DisplayName "Unknown"}}
+                <div class="absolute bottom-1.5 left-1.5 w-7 h-7 rounded-full bg-mw-cyan text-white text-[11px] font-bold flex items-center justify-center shadow ring-1 ring-white/60" title="{{.DisplayName}}">
+                    {{initials .DisplayName}}
+                </div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+    {{else}}
+    <div class="text-center py-12 text-gray-500">
+        <div class="text-5xl mb-2">📷</div>
+        <p class="text-base">No photos yet. Be the first!</p>
+    </div>
+    {{end}}
+</div>
+
+<!-- Camera Overlay -->
+<div id="camera-overlay" class="fixed inset-0 bg-black z-[900] flex-col" style="display:none">
+    <!-- Top bar -->
+    <div class="flex items-center px-4 py-3 bg-black/80 text-white gap-3 z-10">
+        <button onclick="closeCamera()" class="bg-transparent border-none text-white text-3xl cursor-pointer p-1">✕</button>
+        <span id="shot-counter" class="text-lg font-bold">0 shots</span>
+        <div class="flex-1"></div>
+        <button onclick="flipCamera()" class="bg-white/20 rounded-full w-10 h-10 flex items-center justify-center text-xl">🔄</button>
+    </div>
+    <!-- Viewfinder -->
+    <div class="flex-1 flex items-center justify-center overflow-hidden bg-black">
+        <video id="camera-video" playsinline muted autoplay class="w-full h-full object-cover"></video>
+    </div>
+    <!-- Flash overlay -->
+    <div id="camera-flash-el" class="fixed inset-0 bg-white pointer-events-none z-[910]" style="opacity:0"></div>
+    <!-- Bottom bar -->
+    <div class="bg-black/80 px-4 py-3">
+        <div id="thumb-strip" class="thumb-strip flex gap-2 overflow-x-auto pb-3 mb-3" style="min-height:60px"></div>
+        <div class="flex justify-center">
+            <button onclick="capturePhoto()" id="shutter-btn"
+                    class="w-20 h-20 rounded-full border-4 border-white bg-white/20 active:bg-white/50 transition-colors flex items-center justify-center">
+                <div class="w-16 h-16 rounded-full bg-white"></div>
+            </button>
+        </div>
+    </div>
+    <canvas id="camera-canvas" class="hidden"></canvas>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox fixed inset-0 bg-black/95 z-[1000] flex-col" id="lightbox">
+    <div class="flex items-center px-4 py-3 text-white gap-3">
+        <button onclick="closeLightbox()" class="bg-transparent border-none text-white text-3xl cursor-pointer p-1">✕</button>
+        <div class="flex-1">
+            <div class="text-[15px] font-semibold" id="lb-caption"></div>
+            <div class="text-xs text-gray-400" id="lb-meta"></div>
+        </div>
+        <button onclick="rotateCurrentPhoto('ccw')" title="Rotate left" class="px-2.5 py-1.5 bg-white/20 rounded-lg text-sm hover:bg-white/30 transition-colors">↺</button>
+        <button onclick="rotateCurrentPhoto('cw')" title="Rotate right" class="px-2.5 py-1.5 bg-white/20 rounded-lg text-sm hover:bg-white/30 transition-colors">↻</button>
+        <button onclick="toggleLightboxEdit()" id="lb-edit-btn" class="px-3 py-1.5 bg-white/20 rounded-lg text-sm font-semibold hover:bg-white/30 transition-colors">Edit</button>
+    </div>
+    <!-- Edit Panel -->
+    <div id="lb-edit-panel" class="hidden px-4 py-3 bg-gray-900 border-b border-gray-700">
+        <div class="flex flex-col gap-3">
+            <input type="text" id="lb-edit-caption" placeholder="Caption"
+                   class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg text-sm focus:border-mw-cyan focus:outline-none">
+            <div class="flex gap-2 flex-wrap">
+                <button class="lb-tag-btn px-3 py-1.5 border border-gray-600 rounded-full text-xs font-semibold text-gray-300 hover:border-mw-cyan" data-tag="" onclick="setLbTag(this)">None</button>
+                <button class="lb-tag-btn px-3 py-1.5 border border-gray-600 rounded-full text-xs font-semibold text-mw-cyan hover:border-mw-cyan" data-tag="progress" onclick="setLbTag(this)">Progress</button>
+                <button class="lb-tag-btn px-3 py-1.5 border border-gray-600 rounded-full text-xs font-semibold text-cyan-400 hover:border-cyan-400" data-tag="before" onclick="setLbTag(this)">Before</button>
+                <button class="lb-tag-btn px-3 py-1.5 border border-gray-600 rounded-full text-xs font-semibold text-green-400 hover:border-green-400" data-tag="after" onclick="setLbTag(this)">After</button>
+                <button class="lb-tag-btn px-3 py-1.5 border border-gray-600 rounded-full text-xs font-semibold text-red-400 hover:border-red-400" data-tag="issue" onclick="setLbTag(this)">Issue</button>
+            </div>
+            <button onclick="saveLightboxEdit()" class="w-full py-2 bg-mw-cyan text-white text-sm font-bold rounded-lg active:bg-mw-dark transition-colors">Save</button>
+        </div>
+    </div>
+    <div id="lb-body" class="flex-1 flex items-center justify-center p-2 overflow-hidden" onclick="if(event.target===this)closeLightbox()">
+        <img id="lb-img" src="" alt="" class="max-w-full max-h-full object-contain rounded" onclick="event.stopPropagation()">
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/static/js/upload.js?v=4"></script>
+<script>
+    var PROJECT_ID = {{.Project.ID}};
+    var PROJECT_SLUG = "{{.Project.Slug}}";
+    var photos = {{.PhotosJSON}};
+    var currentPhoto = 0;
+
+    // ─── Worker memory ──────────────────────────────────
+    var WORKER_KEY = 'midwestcam_worker';
+
+    function loadSavedWorker() {
+        try {
+            var saved = localStorage.getItem(WORKER_KEY);
+            if (saved) {
+                var data = JSON.parse(saved);
+                var sel = document.getElementById('worker-select');
+                if (data.id === 'other') {
+                    sel.value = 'other';
+                    workerChanged();
+                    document.getElementById('other-name').value = data.name;
+                } else {
+                    sel.value = data.id;
+                    if (sel.value !== String(data.id)) sel.value = '';
+                }
+            }
+        } catch (e) {}
+    }
+
+    function saveWorker() {
+        try {
+            var sel = document.getElementById('worker-select');
+            if (sel.value === 'other') {
+                var name = document.getElementById('other-name').value.trim();
+                if (name) localStorage.setItem(WORKER_KEY, JSON.stringify({ id: 'other', name: name }));
+            } else if (sel.value) {
+                localStorage.setItem(WORKER_KEY, JSON.stringify({
+                    id: sel.value, name: sel.options[sel.selectedIndex].text
+                }));
+            }
+        } catch (e) {}
+    }
+
+    function workerChanged() {
+        var sel = document.getElementById('worker-select');
+        var other = document.getElementById('other-name');
+        if (sel.value === 'other') {
+            other.classList.remove('hidden');
+            other.focus();
+        } else {
+            other.classList.add('hidden');
+        }
+        saveWorker();
+    }
+
+    function getWorkerInfo() {
+        var sel = document.getElementById('worker-select');
+        if (sel.value === 'other') {
+            var name = document.getElementById('other-name').value.trim();
+            return { workerId: null, workerName: name || null };
+        } else if (sel.value) {
+            return { workerId: parseInt(sel.value), workerName: null };
+        }
+        return { workerId: null, workerName: null };
+    }
+
+    // ─── Tags ───────────────────────────────────────────
+    var activeTag = null;
+
+    function toggleTag(btn) {
+        var tag = btn.dataset.tag;
+        if (activeTag === tag) {
+            btn.classList.remove('!border-current', '!bg-current', '!text-white');
+            activeTag = null;
+        } else {
+            document.querySelectorAll('.tag-btn').forEach(function(b) {
+                b.classList.remove('!border-current', '!bg-current', '!text-white');
+            });
+            btn.style.backgroundColor = '';
+            btn.style.color = '';
+            // Use inline style for active state since Tailwind can't do dynamic
+            var colors = { progress: '#00BFDF', before: '#0891b2', after: '#16a34a', issue: '#dc2626' };
+            btn.style.backgroundColor = colors[tag];
+            btn.style.borderColor = colors[tag];
+            btn.style.color = 'white';
+            activeTag = tag;
+        }
+    }
+
+    // ─── File handling ──────────────────────────────────
+    var cameraInput = document.getElementById('camera-input');
+    var fileInput = document.getElementById('file-input');
+
+    if (cameraInput) {
+        cameraInput.addEventListener('change', function() {
+            if (this.files.length > 0) handleFiles(this.files);
+        });
+    }
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            if (this.files.length > 0) handleFiles(this.files);
+        });
+    }
+
+    // Camera return fallback (Android)
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible' && cameraInput) {
+            setTimeout(function() {
+                if (cameraInput.files && cameraInput.files.length > 0) {
+                    handleFiles(cameraInput.files);
+                }
+            }, 500);
+        }
+    });
+
+    function handleFiles(files) {
+        if (!files || files.length === 0) return;
+
+        var info = getWorkerInfo();
+        if (!info.workerId && !info.workerName) {
+            showStatus('💡 Tip: Select your name above so photos are tagged to you', 'hint');
+            setTimeout(hideStatus, 5000);
+        }
+        saveWorker();
+
+        var caption = document.getElementById('caption').value.trim();
+        enqueueFiles(files, PROJECT_ID, info.workerId, info.workerName, caption, activeTag);
+
+        setTimeout(function() {
+            document.getElementById('camera-input').value = '';
+            document.getElementById('file-input').value = '';
+        }, 100);
+    }
+
+    function showStatus(msg, type) {
+        var el = document.getElementById('upload-status');
+        el.textContent = msg;
+        el.className = 'px-4 py-2.5 rounded-lg text-sm text-center ' +
+            (type === 'hint' ? 'bg-yellow-50 text-yellow-800 border border-yellow-300' :
+             type === 'error' ? 'bg-red-50 text-red-800 border border-red-300' :
+             'bg-green-50 text-green-800 border border-green-300');
+        el.style.display = 'block';
+    }
+    function hideStatus() {
+        document.getElementById('upload-status').style.display = 'none';
+    }
+
+    // ─── Drag & Drop ────────────────────────────────────
+    var dropArea = document.getElementById('drop-area');
+    ['dragenter', 'dragover'].forEach(function(evt) {
+        dropArea.addEventListener(evt, function(e) {
+            e.preventDefault();
+            dropArea.style.borderColor = '#00BFDF';
+            dropArea.style.backgroundColor = 'rgba(0,103,120,0.05)';
+        });
+    });
+    ['dragleave', 'drop'].forEach(function(evt) {
+        dropArea.addEventListener(evt, function(e) {
+            e.preventDefault();
+            dropArea.style.borderColor = '';
+            dropArea.style.backgroundColor = '';
+        });
+    });
+    dropArea.addEventListener('drop', function(e) {
+        handleFiles(e.dataTransfer.files);
+    });
+
+    // ─── Lightbox ───────────────────────────────────────
+    function showPhoto(idx) {
+        if (idx < 0 || idx >= photos.length) return;
+        currentPhoto = idx;
+        var p = photos[idx];
+        document.getElementById('lb-img').src = p.url;
+        document.getElementById('lb-caption').textContent = p.caption || '';
+        document.getElementById('lb-meta').textContent = p.worker + ' • ' + p.date + (p.tag ? ' • ' + p.tag : '');
+        document.getElementById('lb-edit-panel').classList.add('hidden');
+    }
+
+    function openLightbox(tile) {
+        var tiles = document.querySelectorAll('.photo-tile');
+        var idx = Array.from(tiles).indexOf(tile);
+        if (idx < 0 || idx >= photos.length) return;
+        showPhoto(idx);
+        document.getElementById('lightbox').classList.add('show');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeLightbox() {
+        document.getElementById('lightbox').classList.remove('show');
+        document.getElementById('lb-edit-panel').classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+
+    function isLightboxOpen() {
+        return document.getElementById('lightbox').classList.contains('show');
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (!isLightboxOpen()) return;
+        if (e.key === 'Escape') closeLightbox();
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (currentPhoto < photos.length - 1) showPhoto(currentPhoto + 1);
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (currentPhoto > 0) showPhoto(currentPhoto - 1);
+        }
+    });
+
+    // ─── Lightbox Edit ─────────────────────────────────
+    var lbEditTag = '';
+
+    function toggleLightboxEdit() {
+        var panel = document.getElementById('lb-edit-panel');
+        var isHidden = panel.classList.contains('hidden');
+        if (isHidden) {
+            var p = photos[currentPhoto];
+            document.getElementById('lb-edit-caption').value = p.caption || '';
+            lbEditTag = p.tag || '';
+            highlightLbTag();
+            panel.classList.remove('hidden');
+        } else {
+            panel.classList.add('hidden');
+        }
+    }
+
+    function setLbTag(btn) {
+        lbEditTag = btn.dataset.tag;
+        highlightLbTag();
+    }
+
+    function highlightLbTag() {
+        document.querySelectorAll('.lb-tag-btn').forEach(function(b) {
+            if (b.dataset.tag === lbEditTag) {
+                b.style.backgroundColor = 'rgba(255,255,255,0.2)';
+                b.style.borderColor = 'currentColor';
+            } else {
+                b.style.backgroundColor = '';
+                b.style.borderColor = '';
+            }
+        });
+    }
+
+    function saveLightboxEdit() {
+        var p = photos[currentPhoto];
+        var caption = document.getElementById('lb-edit-caption').value.trim();
+        var tag = lbEditTag;
+
+        fetch('/api/photo/' + p.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ caption: caption || null, tag: tag || null })
+        }).then(function(res) {
+            if (!res.ok) throw new Error('Update failed');
+            return res.json();
+        }).then(function() {
+            // Update in-memory data
+            p.caption = caption;
+            p.tag = tag;
+
+            // Update lightbox display
+            document.getElementById('lb-caption').textContent = caption || '';
+            document.getElementById('lb-meta').textContent = p.worker + ' \u2022 ' + p.date + (tag ? ' \u2022 ' + tag : '');
+
+            // Update gallery tile badge
+            var tiles = document.querySelectorAll('.photo-tile');
+            if (tiles[currentPhoto]) {
+                var badge = tiles[currentPhoto].querySelector('span');
+                if (tag) {
+                    var colors = { progress: 'bg-mw-cyan', before: 'bg-cyan-500', after: 'bg-green-500', issue: 'bg-red-500' };
+                    if (badge) {
+                        badge.textContent = tag;
+                        badge.className = 'absolute top-1.5 left-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold text-white uppercase ' + (colors[tag] || '');
+                    } else {
+                        var span = document.createElement('span');
+                        span.className = 'absolute top-1.5 left-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold text-white uppercase ' + (colors[tag] || '');
+                        span.textContent = tag;
+                        tiles[currentPhoto].appendChild(span);
+                    }
+                } else if (badge) {
+                    badge.remove();
+                }
+            }
+
+            document.getElementById('lb-edit-panel').classList.add('hidden');
+            showToast('Photo updated', 'success');
+        }).catch(function(err) {
+            showToast('Failed to save: ' + err.message, 'error');
+        });
+    }
+
+    // ─── Rotate Photo ────────────────────────────────────
+    function rotateCurrentPhoto(direction) {
+        var p = photos[currentPhoto];
+        if (!p) return;
+
+        var img = document.getElementById('lb-img');
+        img.style.opacity = '0.5';
+
+        fetch('/api/photo/' + p.id + '/rotate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ direction: direction })
+        }).then(function(res) {
+            if (!res.ok) throw new Error('Rotate failed');
+            return res.json();
+        }).then(function() {
+            // Force reload the image by busting cache
+            var ts = Date.now();
+            img.src = p.url + '?v=' + ts;
+            img.style.opacity = '1';
+
+            // Also bust cache on the thumbnail in the gallery
+            var tiles = document.querySelectorAll('.photo-tile');
+            if (tiles[currentPhoto]) {
+                var thumbImg = tiles[currentPhoto].querySelector('img');
+                if (thumbImg) {
+                    thumbImg.src = thumbImg.src.split('?')[0] + '?v=' + ts;
+                }
+            }
+            showToast('Photo rotated', 'success');
+        }).catch(function(err) {
+            img.style.opacity = '1';
+            showToast('Rotate failed: ' + err.message, 'error');
+        });
+    }
+
+    // ─── Rapid-Shoot Camera ────────────────────────────
+    var cameraStream = null;
+    var shotCount = 0;
+    var useFrontCamera = false;
+
+    function hasGetUserMedia() {
+        return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function openCamera() {
+        var overlay = document.getElementById('camera-overlay');
+        overlay.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        shotCount = 0;
+        document.getElementById('shot-counter').textContent = '0 shots';
+        document.getElementById('thumb-strip').innerHTML = '';
+        startCameraStream();
+    }
+
+    function closeCamera() {
+        stopCameraStream();
+        document.getElementById('camera-overlay').style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    function startCameraStream() {
+        var constraints = {
+            video: {
+                facingMode: useFrontCamera ? 'user' : 'environment',
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            },
+            audio: false
+        };
+        navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+            cameraStream = stream;
+            var video = document.getElementById('camera-video');
+            video.srcObject = stream;
+            video.play();
+        }).catch(function(err) {
+            console.error('[MidwestCam] Camera error:', err);
+            showToast('Camera access denied', 'error');
+            closeCamera();
+        });
+    }
+
+    function stopCameraStream() {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(function(t) { t.stop(); });
+            cameraStream = null;
+        }
+        var video = document.getElementById('camera-video');
+        video.srcObject = null;
+    }
+
+    function flipCamera() {
+        useFrontCamera = !useFrontCamera;
+        stopCameraStream();
+        startCameraStream();
+    }
+
+    function capturePhoto() {
+        var video = document.getElementById('camera-video');
+        var canvas = document.getElementById('camera-canvas');
+        if (!video.videoWidth) return;
+
+        var vw = video.videoWidth;
+        var vh = video.videoHeight;
+
+        // Detect orientation mismatch: if the device is in portrait but the
+        // video stream is landscape (or vice versa), the browser is applying
+        // display rotation that canvas.drawImage won't capture. We need to
+        // manually rotate the canvas to match what the user sees.
+        var angle = screen.orientation ? screen.orientation.angle : (window.orientation || 0);
+        var isDevicePortrait = (angle % 180 === 0);
+        var isVideoLandscape = (vw > vh);
+        var needsRotation = isDevicePortrait && isVideoLandscape;
+
+        var ctx;
+        if (needsRotation) {
+            // Swap canvas dimensions for portrait output
+            canvas.width = vh;
+            canvas.height = vw;
+            ctx = canvas.getContext('2d');
+            if (angle === 0) {
+                // Standard portrait: rotate 90° CW
+                ctx.translate(canvas.width, 0);
+                ctx.rotate(Math.PI / 2);
+            } else {
+                // Upside-down portrait (180°): rotate 90° CCW
+                ctx.translate(0, canvas.height);
+                ctx.rotate(-Math.PI / 2);
+            }
+        } else {
+            canvas.width = vw;
+            canvas.height = vh;
+            ctx = canvas.getContext('2d');
+        }
+        ctx.drawImage(video, 0, 0);
+
+        // Flash effect
+        var flash = document.getElementById('camera-flash-el');
+        flash.style.opacity = '0.8';
+        flash.classList.remove('camera-flash');
+        void flash.offsetWidth;
+        flash.classList.add('camera-flash');
+
+        canvas.toBlob(function(blob) {
+            if (!blob) return;
+            var filename = 'rapid-' + Date.now() + '.jpg';
+            var file = new File([blob], filename, { type: 'image/jpeg' });
+
+            var info = getWorkerInfo();
+            var caption = document.getElementById('caption').value.trim();
+            enqueueFiles([file], PROJECT_ID, info.workerId, info.workerName, caption, activeTag);
+
+            // Update counter
+            shotCount++;
+            document.getElementById('shot-counter').textContent = shotCount + ' shot' + (shotCount === 1 ? '' : 's');
+
+            // Add thumbnail to strip
+            var strip = document.getElementById('thumb-strip');
+            var thumb = document.createElement('img');
+            thumb.src = URL.createObjectURL(blob);
+            thumb.className = 'w-14 h-14 rounded-lg object-cover flex-shrink-0';
+            strip.appendChild(thumb);
+            strip.scrollLeft = strip.scrollWidth;
+        }, 'image/jpeg', 0.92);
+    }
+
+    // ─── Feature Detection ─────────────────────────────
+    if (hasGetUserMedia()) {
+        document.getElementById('rapid-shoot-btn').style.display = 'block';
+        var label = document.getElementById('camera-label');
+        label.className = 'block w-full py-3 bg-gray-200 text-gray-600 text-center text-sm font-semibold rounded-xl cursor-pointer active:bg-gray-300 transition-colors mb-3';
+        label.textContent = '📷 Single Photo (Fallback)';
+    }
+
+    // ─── Lightbox Swipe (mobile) ────────────────────────
+    (function() {
+        var body = document.getElementById('lb-body');
+        var startX = 0;
+        var startY = 0;
+        body.addEventListener('touchstart', function(e) {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+        }, { passive: true });
+        body.addEventListener('touchend', function(e) {
+            var dx = e.changedTouches[0].clientX - startX;
+            var dy = e.changedTouches[0].clientY - startY;
+            if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+            if (dx < 0 && currentPhoto < photos.length - 1) showPhoto(currentPhoto + 1);
+            if (dx > 0 && currentPhoto > 0) showPhoto(currentPhoto - 1);
+        }, { passive: true });
+    })();
+
+    // ─── Init ───────────────────────────────────────────
+    loadSavedWorker();
+</script>
+{{end}}
