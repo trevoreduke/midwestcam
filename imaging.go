@@ -84,22 +84,41 @@ func ProcessUpload(data []byte) (*ProcessedImage, error) {
 }
 
 // SaveImage writes an image to disk as JPEG or PNG based on extension.
+// The encode happens to a temp file in the same directory, which is then
+// atomically renamed into place — this avoids torn reads when an in-place
+// rewrite (e.g. RotateFile) races with a concurrent serve of the same file.
 func SaveImage(img image.Image, path string, quality int) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
-	f, err := os.Create(path)
+	f, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+"-*")
 	if err != nil {
-		return fmt.Errorf("create file: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath) // no-op once renamed; cleans up on error
 
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".png" {
-		return png.Encode(f, img)
+		err = png.Encode(f, img)
+	} else {
+		err = jpeg.Encode(f, img, &jpeg.Options{Quality: quality})
 	}
-	return jpeg.Encode(f, img, &jpeg.Options{Quality: quality})
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("encode image: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename into place: %w", err)
+	}
+	return nil
 }
 
 // SaveRaw writes raw bytes to disk (for formats we can't process).

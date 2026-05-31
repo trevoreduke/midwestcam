@@ -31,7 +31,7 @@ type App struct {
 }
 
 func loadConfig() Config {
-	port := 4010
+	port := 4011
 	if p := os.Getenv("PORT"); p != "" {
 		port, _ = strconv.Atoi(p)
 	}
